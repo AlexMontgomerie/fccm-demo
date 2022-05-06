@@ -5,19 +5,22 @@ const objective = document.getElementById("objective");
 const optimiser = document.getElementById("optimiser");
 const run_opt = document.getElementById("run-opt");
 const stop_opt = document.getElementById("stop-opt");
-const ctx = document.getElementById('myChart').getContext('2d');
+const rsc_ctx = document.getElementById('rscChart').getContext('2d');
 const perf_ctx = document.getElementById('perfChart').getContext('2d');
 const update_graph = document.getElementById("update-graph");
 
 var graphUpdate = false;
 var isRunning = false;
-var opt_pid = -1;
 
 var throughput = new Map();
 var latency = new Map();
 
 throughput.set("0", 0.0);
 latency.set("0", 0.0);
+
+var latest_vis_file = "outputs/base.dot";
+var latest_log_file = "outputs/base.log";
+var latest_index = "0";
 
 function removeExtension(filename) {
   return filename.substring(0, filename.lastIndexOf('.')) || filename;
@@ -28,60 +31,62 @@ update_graph.addEventListener('click', function() {
   graphUpdate = !graphUpdate;
 });
 
-// run optimiser button
-run_opt.addEventListener('click', function() {
-  fetch("run-optimiser.php", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-        },
-        body: `model=${model.files[0].name}&platform=${platform.value}&objective=${objective.value}&optimiser=${optimiser.value}&pid=${opt_pid}`,
-      })
-      .then((response) => response.text())
-      .then((res) => opt_pid = res);
-  isRunning = true;
-  // render();
-});
-
-// stop optimiser button
-stop_opt.addEventListener('click', function() {
-  console.log(`optimiser PID: ${opt_pid}`);
-  fetch("stop-optimiser.php", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-        },
-        body: `pid=${opt_pid}`,
-      });
-  isRunning = false;
-  // clear throughput and latency data
-  throughput.clear();
-  latency.clear();
-});
+// attributer
+function attributer(datum, index, nodes) {
+    margin = 20; // to avoid scrollbars
+    var selection = d3.select(this);
+    if (datum.tag == "svg") {
+        var width = window.innerWidth;
+        var height = window.innerHeight;
+        datum.attributes.width = width - margin;
+        datum.attributes.height = height - margin;
+    }
+}
 
 // transition between graphs
 function transitionFactory() {
     return d3.transition("main")
         .ease(d3.easeLinear)
         .delay(500)
-        .duration(1000);
+        .duration(500);
+}
+
+function resetZoom() {
+  graphviz
+    .resetZoom(d3.transition().duration(10));
+}
+
+function resizeSVG() {
+    var width = window.innerWidth;
+    var height = window.innerHeight;
+    var svg = d3.select("#graph").selectWithoutDataPropagation("svg");
+    svg
+        .transition()
+        .duration(700)
+        .attr("width", width - 40)
+        .attr("height", height - 40);
+    var d = svg.datum();
+    d.attributes['width'] = width - margin;
+    d.attributes['height'] = height - margin;
 }
 
 // graph creator
 var graphviz = d3.select("#graph").graphviz()
     .logEvents(true)
+	// .attributer(attributer)
     .transition(transitionFactory)
     .tweenShapes(false)
-    .width("100%");
+    .tweenPaths(true);
+    // .fit(true);
+    // .width("100%");
     // .on("initEnd", render);
 
 // function to load local file
 function loadFile(filePath) {
-  console.log(filePath);
+  // console.log(filePath);
   if(filePath == "outputs/vis/..") {
     filePath = "outputs/base.dot";
   }
-  var result = null;
   var xmlhttp = new XMLHttpRequest();
   xmlhttp.open("GET", filePath, false);
   xmlhttp.send();
@@ -91,19 +96,40 @@ function loadFile(filePath) {
 }
 
 // get the latest file
-function latestFile(fileDir) {
+async function latestFile(fileDir) {
   return fetch("get-latest-file.php", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-        },
-        body: `path=${fileDir}`,
-      })
-      .then((response) => response.text());
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: `path=${fileDir}`,
+  })
+  .then((response) => response.text());
+}
+
+// get the latest file
+async function latestFile() {
+  return fetch("get-latest-file.php", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: `path=outputs/vis`,
+  })
+  .then((response) => response.text())
+  .then((file) => {
+    latest_log_file = "outputs/base.json";
+    latest_vis_file = "outputs/base.dot";
+	if(file != "..") {
+	  latest_index = removeExtension(file);
+	  latest_log_file = "outputs/log/"+latest_index+".json";
+	  latest_vis_file = "outputs/vis/"+latest_index+".dot";
+	}
+  });
 }
 
 // create a horizontal bar chart
-const myChart = new Chart(ctx, {
+const rscChart = new Chart(rsc_ctx, {
     type: 'bar',
     data: {
         labels: ['LUT', 'FF', 'DSP', 'BRAM'],
@@ -129,8 +155,13 @@ const myChart = new Chart(ctx, {
         indexAxis: 'y',
         scales: {
             x: {
-                beginAtZero: true,
-                max: 100
+              display: true,
+              beginAtZero: true,
+              max: 100,
+              title: {
+                display: true,
+                title: "Resource Usage (%)"
+              }
             }
         },
         plugins: {
@@ -176,12 +207,20 @@ const perfChart = new Chart(perf_ctx, {
             display: true,
             position: 'left',
             beginAtZero: true,
+            title: {
+              display: true,
+              text: 'Throughput (img/s)'
+            }
           },
           y1: {
             type: 'linear',
             display: true,
             position: 'right',
             beginAtZero: true,
+            title: {
+              display: true,
+              text: 'Latency (/batch)',
+            },
             // grid line settings
             grid: {
               drawOnChartArea: false, // only want the grid lines for one axis to show up
@@ -195,28 +234,19 @@ const perfChart = new Chart(perf_ctx, {
 
 
 // function to render graph
-function chart_render() {
+function rsc_chart_render() {
   // update chart
   if( isRunning ) {
-    latestFile("outputs/log").then(
-      (file) => {
-        var filepath = "outputs/base.json";
-        if(file != "..") {
-          filepath = "outputs/log/"+file;
-        }
-        let data = loadFile(filepath);
-        let log = JSON.parse(data);
-        myChart.data.datasets[0].data = [
-            log['resource']['LUT'],
-            log['resource']['FF'],
-            log['resource']['DSP'],
-            log['resource']['BRAM']
-        ];
-        myChart.update();
-        // update throughput and latency
-        throughput.innerHTML = "Throughput (fps): "+log["throughput"];
-        latency.innerHTML = "Latency (ms): "+log["latency"];
-    });
+	console.log("rendering resource chart: "+latest_log_file);
+	let data = loadFile(latest_log_file);
+	let log = JSON.parse(data);
+	rscChart.data.datasets[0].data = [
+		log['resource']['LUT'],
+		log['resource']['FF'],
+		log['resource']['DSP'],
+		log['resource']['BRAM']
+	];
+	rscChart.update();
   }
 }
 
@@ -224,47 +254,71 @@ function chart_render() {
 function perf_chart_render() {
   // update chart
   if( isRunning ) {
-    latestFile("outputs/log").then(
-      (file) => {
-        var filepath = "outputs/base.json";
-        if(file != "..") {
-          filepath = "outputs/log/"+file;
-        } else {
-          return;
-        }
-        let data = loadFile(filepath);
-        let log = JSON.parse(data);
-        // update throughput and latency map
-        throughput.set(removeExtension(file), log["throughput"]);
-        latency.set(removeExtension(file), log["latency"]);
-        console.log(throughput.values());
-        perfChart.data.datasets[0].data = Array.from(throughput.values());
-        perfChart.data.datasets[1].data = Array.from(latency.values());
-        perfChart.data.labels = Array.from(throughput.keys());
-        perfChart.update();
-    });
+	console.log("rendering performance chart: "+latest_log_file);
+	let data = loadFile(latest_log_file);
+	let log = JSON.parse(data);
+	// update throughput and latency map
+	throughput.set(removeExtension(latest_index), log["throughput"]);
+	latency.set(removeExtension(latest_index), log["latency"]);
+	perfChart.data.datasets[0].data = Array.from(throughput.values());
+	perfChart.data.datasets[1].data = Array.from(latency.values());
+	perfChart.data.labels = Array.from(throughput.keys());
+	perfChart.update();
   }
 }
 
 // function to render graph
 function graph_render() {
-    // update graph visualisation
-    latestFile("outputs/vis").then(
-      (file) => {
-        var filepath = "outputs/base.dot";
-        if(file != "..") {
-          filepath = "outputs/vis/"+file;
-        }
-        let data = loadFile(filepath);
-        graphviz
-          .renderDot(data)
-    });
+  // update graph visualisation
+  if( isRunning && graphUpdate ) {
+	console.log("rendering graph: "+latest_vis_file);
+	let data = loadFile(latest_vis_file);
+	graphviz
+	  .renderDot(data)
+	  // .resetZoom(d3.transition().duration(10))
+	  .on("end", function() {
+		graph_render();
+	  });
+  }
 }
 
-// set intervals for updating charts and graphs
-setInterval(chart_render, 200);
+// run optimiser button
+function startOptimiser() {
+  var xmlhttp = new XMLHttpRequest();
+  xmlhttp.open("GET", `run-optimiser.php?model=${model.files[0].name}&platform=${platform.value}&objective=${objective.value}&optimiser=${optimiser.value}`);
+  xmlhttp.send(null);
+  latest_vis_file = "outputs/base.dot";
+  latest_log_file = "outputs/base.log";
+  isRunning = true;
+  console.log("isRunning: "+isRunning+", graphUpdate: "+graphUpdate);
+  graph_render();
+}
 
-// set intervals for updating charts and graphs
-setInterval(perf_chart_render, 200);
+// stop optimiser button
+function stopOptimiser() {
+  var xmlhttp = new XMLHttpRequest();
+  xmlhttp.open("GET", "stop-optimiser.php");
+  xmlhttp.send(null);
+  isRunning = false;
+  throughput.clear();
+  latency.clear();
+}
 
+// get the latest log and vis file
+setInterval(latestFile, 50);
+
+// // set intervals for updating charts and graphs
+// setInterval(rsc_chart_render, 500);
+
+// // set intervals for updating charts and graphs
+// setInterval(perf_chart_render, 500);
+
+// // set intervals for updating charts and graphs
+// setInterval(graph_render, 3000);
+
+// on-click events
+run_opt.addEventListener('click', startOptimiser);
+stop_opt.addEventListener('click', stopOptimiser);
+
+// d3.select(window).on("resize", resizeSVG);
 
