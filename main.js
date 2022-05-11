@@ -143,15 +143,15 @@ const rscChart = new Chart(rsc_ctx, {
         responsive: true,
         indexAxis: 'y',
         scales: {
-            x: {
+          x: {
+            display: true,
+            beginAtZero: true,
+            max: 100,
+            title: {
+              text: "Resource Usage (%)",
               display: true,
-              beginAtZero: true,
-              max: 100,
-              title: {
-                display: true,
-                title: "Resource Usage (%)"
-              }
             }
+          },
         },
         plugins: {
           legend: {
@@ -191,6 +191,12 @@ const perfChart = new Chart(perf_ctx, {
           intersect: false,
         },
         scales: {
+          x: {
+            title: {
+              display: true,
+              text: 'Design Point Index'
+            },
+          },
           y: {
             type: 'linear',
             display: true,
@@ -208,7 +214,7 @@ const perfChart = new Chart(perf_ctx, {
             beginAtZero: true,
             title: {
               display: true,
-              text: 'Latency (/batch)',
+              text: 'Latency (s/batch)',
             },
             // grid line settings
             grid: {
@@ -234,16 +240,30 @@ const paretoChart = new Chart(pareto_ctx, {
       ]
     },
     options: {
-        responsive: true,
+      responsive: true,
+      scales: {
         x: {
-            type: 'linear',
-            position: 'bottom'
-        },
-        plugins: {
-          legend: {
-            display: false
+          type: 'linear',
+          position: 'bottom',
+          beginAtZero: true,
+          max: 100,
+          title: {
+            display: true,
+            text: 'Resource Usage (%)'
           }
         },
+        y: {
+          title: {
+            display: true,
+            text: 'Performance'
+          }
+        },
+      },
+      plugins: {
+        legend: {
+          display: false
+        }
+      }
     }
 });
 
@@ -299,9 +319,11 @@ function pareto_chart_render() {
       let cost = Array.from(throughput.values());
       let rsc = Array.from(resource.values()).map( (arr) => average(arr) );
       paretoChart.data.datasets[0].data = zip(rsc,cost);
+      paretoChart.options.scales.y.title.text = "Throughput (img/s)";
     } else if( objective.value == "latency" ) {
       let cost = Array.from(latency.values());
       let rsc = Array.from(resource.values()).map( (arr) => average(arr) );
+      paretoChart.options.scales.y.title.text = "Latency (s/batch)";
       paretoChart.data.datasets[0].data = zip(rsc,cost);
     }
     paretoChart.update();
@@ -378,10 +400,12 @@ function sliderHandler() {
     if( objective.value == "throughput" ) {
       let cost = Array.from(throughput.values()).slice(0,sliderValue);
       let rsc = Array.from(resource.values()).map( (arr) => average(arr) ).slice(1,sliderValue);
+      paretoChart.options.scales.y.title.text = "Throughput (img/s)";
       paretoChart.data.datasets[0].data = zip(rsc,cost);
     } else if( objective.value == "latency" ) {
       let cost = Array.from(latency.values()).slice(0,sliderValue);
       let rsc = Array.from(resource.values()).map( (arr) => average(arr) ).slice(1,sliderValue);
+      paretoChart.options.scales.y.title.text = "Latency (s/batch)";
       paretoChart.data.datasets[0].data = zip(rsc,cost);
     }
     paretoChart.update();
